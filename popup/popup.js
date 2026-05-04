@@ -1,28 +1,45 @@
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let isActive = false;
+let isActive     = false;
+let mode         = 'allowlist';
 let allowedSites = [];
+let blockedSites = [];
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
-const toggle      = document.getElementById('main-toggle');
-const statusLabel = document.getElementById('status-label');
-const siteInput   = document.getElementById('site-input');
-const addBtn      = document.getElementById('add-btn');
-const siteList    = document.getElementById('site-list');
-const emptyState  = document.getElementById('empty-state');
-const errorMsg    = document.getElementById('error-msg');
-const footerMsg   = document.getElementById('footer-msg');
+const toggle       = document.getElementById('main-toggle');
+const statusLabel  = document.getElementById('status-label');
+const listHeading  = document.getElementById('list-heading');
+const siteInput    = document.getElementById('site-input');
+const addBtn       = document.getElementById('add-btn');
+const siteList     = document.getElementById('site-list');
+const emptyState   = document.getElementById('empty-state');
+const emptyPrimary = document.getElementById('empty-primary');
+const emptySec     = document.getElementById('empty-secondary');
+const errorMsg     = document.getElementById('error-msg');
+const footerMsg    = document.getElementById('footer-msg');
+const quickAdd     = document.querySelector('.quick-add');
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const activeList = () => mode === 'allowlist' ? allowedSites : blockedSites;
+const activeKey  = () => mode === 'allowlist' ? 'allowedSites' : 'blockedSites';
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 async function init() {
-  const data = await chrome.storage.sync.get({ isActive: false, allowedSites: [] });
+  const data = await chrome.storage.sync.get({
+    isActive: false, mode: 'allowlist', allowedSites: [], blockedSites: [],
+  });
   isActive     = data.isActive;
+  mode         = data.mode;
   allowedSites = data.allowedSites;
+  blockedSites = data.blockedSites;
 
   toggle.checked = isActive;
+  document.querySelector(`input[value="${mode}"]`).checked = true;
   updateStatusUI();
+  updateModeUI();
   renderList();
   syncChips();
 }
@@ -41,15 +58,38 @@ function updateStatusUI() {
   }
 }
 
+function updateModeUI() {
+  if (mode === 'allowlist') {
+    listHeading.textContent  = 'Allowed Sites';
+    emptyPrimary.textContent = 'No sites allowed yet.';
+    emptySec.textContent     = 'All websites will be blocked.';
+    quickAdd.hidden          = false;
+  } else {
+    listHeading.textContent  = 'Blocked Sites';
+    emptyPrimary.textContent = 'No sites blocked yet.';
+    emptySec.textContent     = 'All websites will be accessible.';
+    quickAdd.hidden          = true;
+  }
+}
+
 function showError(msg) {
   siteInput.classList.add('invalid');
+  errorMsg.classList.remove('info');
   errorMsg.textContent = msg;
   errorMsg.hidden = false;
   setTimeout(clearError, 2200);
 }
 
+function showInfo(msg) {
+  errorMsg.classList.add('info');
+  errorMsg.textContent = msg;
+  errorMsg.hidden = false;
+  setTimeout(clearError, 2500);
+}
+
 function clearError() {
   siteInput.classList.remove('invalid');
+  errorMsg.classList.remove('info');
   errorMsg.hidden = true;
   errorMsg.textContent = '';
 }
@@ -62,7 +102,19 @@ toggle.addEventListener('change', async () => {
   updateStatusUI();
 });
 
-// ── Allowlist CRUD ────────────────────────────────────────────────────────────
+// ── Mode selector ─────────────────────────────────────────────────────────────
+
+document.querySelectorAll('input[name="mode"]').forEach(radio => {
+  radio.addEventListener('change', async e => {
+    mode = e.target.value;
+    await chrome.storage.sync.set({ mode });
+    updateModeUI();
+    renderList();
+    syncChips();
+  });
+});
+
+// ── Allowlist/Blocklist CRUD ──────────────────────────────────────────────────
 
 function normalizeDomain(raw) {
   const trimmed = raw.trim().toLowerCase();
@@ -81,18 +133,33 @@ function normalizeDomain(raw) {
 async function addSite(raw) {
   const domain = normalizeDomain(raw);
   if (!domain) { showError('Invalid domain — try: example.com'); return false; }
-  if (allowedSites.includes(domain)) { showError('Already in allowlist'); return false; }
+  if (activeList().includes(domain)) { showError('Already in list'); return false; }
 
-  allowedSites = [...allowedSites, domain];
-  await chrome.storage.sync.set({ allowedSites });
+  // If the site exists in the opposite list, remove it from there first
+  const inOther = mode === 'allowlist' ? blockedSites.includes(domain) : allowedSites.includes(domain);
+  if (inOther) {
+    if (mode === 'allowlist') {
+      blockedSites = blockedSites.filter(s => s !== domain);
+      await chrome.storage.sync.set({ blockedSites });
+    } else {
+      allowedSites = allowedSites.filter(s => s !== domain);
+      await chrome.storage.sync.set({ allowedSites });
+    }
+    showInfo(`Removed from your ${mode === 'allowlist' ? 'blocklist' : 'allowlist'}`);
+  }
+
+  const updated = [...activeList(), domain];
+  if (mode === 'allowlist') allowedSites = updated; else blockedSites = updated;
+  await chrome.storage.sync.set({ [activeKey()]: updated });
   renderList();
   syncChips();
   return true;
 }
 
 async function removeSite(domain) {
-  allowedSites = allowedSites.filter(s => s !== domain);
-  await chrome.storage.sync.set({ allowedSites });
+  const updated = activeList().filter(s => s !== domain);
+  if (mode === 'allowlist') allowedSites = updated; else blockedSites = updated;
+  await chrome.storage.sync.set({ [activeKey()]: updated });
   renderList();
   syncChips();
 }
@@ -100,17 +167,16 @@ async function removeSite(domain) {
 // ── Render list ───────────────────────────────────────────────────────────────
 
 function renderList() {
-  // Remove existing items only
   siteList.querySelectorAll('.site-item').forEach(el => el.remove());
 
-  if (allowedSites.length === 0) {
+  if (activeList().length === 0) {
     emptyState.hidden = false;
     return;
   }
 
   emptyState.hidden = true;
 
-  allowedSites.forEach(domain => {
+  activeList().forEach(domain => {
     const item = document.createElement('div');
     item.className = 'site-item';
 
@@ -130,7 +196,7 @@ function renderList() {
   });
 }
 
-// ── Quick-add chips ───────────────────────────────────────────────────────────
+// ── Quick-add chips (allowlist mode only) ─────────────────────────────────────
 
 function syncChips() {
   document.querySelectorAll('.chip').forEach(chip => {

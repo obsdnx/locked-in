@@ -3,7 +3,9 @@ importScripts('../utils/urlMatcher.js');
 // In-memory state — kept in sync with chrome.storage.sync via onChanged
 const state = {
   isActive: false,
+  mode: 'allowlist',
   allowedSites: [],
+  blockedSites: [],
 };
 
 // Map of tabId -> original URL, populated by webNavigation.onBeforeNavigate
@@ -13,13 +15,20 @@ const pendingBlocked = new Map();
 // ─── Initialisation ───────────────────────────────────────────────────────────
 
 async function loadState() {
-  const data = await chrome.storage.sync.get({ isActive: false, allowedSites: [] });
-  state.isActive = data.isActive;
+  const data = await chrome.storage.sync.get({ isActive: false, mode: 'allowlist', allowedSites: [], blockedSites: [] });
+  state.isActive    = data.isActive;
+  state.mode        = data.mode;
   state.allowedSites = data.allowedSites;
+  state.blockedSites = data.blockedSites;
   setIcon(state.isActive);
 }
 
-chrome.runtime.onInstalled.addListener(loadState);
+chrome.runtime.onInstalled.addListener(async () => {
+  // Migration: seed new fields for existing installs
+  const data = await chrome.storage.sync.get(['mode', 'blockedSites']);
+  if (!data.mode) chrome.storage.sync.set({ mode: 'allowlist', blockedSites: [] });
+  loadState();
+});
 
 // Reload state whenever the service worker wakes up
 loadState();
@@ -45,9 +54,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
     state.isActive = changes.isActive.newValue;
     setIcon(state.isActive);
   }
-  if ('allowedSites' in changes) {
-    state.allowedSites = changes.allowedSites.newValue ?? [];
-  }
+  if ('mode' in changes)         state.mode         = changes.mode.newValue;
+  if ('allowedSites' in changes) state.allowedSites = changes.allowedSites.newValue ?? [];
+  if ('blockedSites' in changes) state.blockedSites = changes.blockedSites.newValue ?? [];
 });
 
 // ─── Blocking logic ───────────────────────────────────────────────────────────
@@ -59,6 +68,7 @@ function isWebUrl(url) {
 function shouldBlock(url) {
   if (!state.isActive) return false;
   if (!isWebUrl(url)) return false;
+  if (state.mode === 'blocklist') return isUrlAllowed(url, state.blockedSites);
   return !isUrlAllowed(url, state.allowedSites);
 }
 
@@ -82,7 +92,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
 
   if (shouldBlock(url)) {
     const blocked = chrome.runtime.getURL('blocked/blocked.html') +
-                    '?url=' + encodeURIComponent(url);
+                    '?url=' + encodeURIComponent(url) +
+                    '&mode=' + state.mode;
     try {
       await chrome.tabs.update(tabId, { url: blocked });
     } catch {

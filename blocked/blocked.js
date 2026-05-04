@@ -56,19 +56,24 @@ document.getElementById('btn-allow').addEventListener('click', async () => {
 
   try {
     const hostname = new URL(url).hostname;
-    const data = await chrome.storage.sync.get({ allowedSites: [] });
-    const sites = data.allowedSites;
+    const mode = getMode();
 
-    if (!sites.includes(hostname)) {
-      await chrome.storage.sync.set({ allowedSites: [...sites, hostname] });
+    if (mode === 'blocklist') {
+      const data = await chrome.storage.sync.get({ blockedSites: [] });
+      await chrome.storage.sync.set({
+        blockedSites: data.blockedSites.filter(s => s !== hostname),
+      });
+    } else {
+      const data = await chrome.storage.sync.get({ allowedSites: [] });
+      if (!data.allowedSites.includes(hostname)) {
+        await chrome.storage.sync.set({ allowedSites: [...data.allowedSites, hostname] });
+      }
     }
 
-    // Brief pause lets the background script pick up the storage change
-    // before we navigate to the now-allowed URL.
     await new Promise(r => setTimeout(r, 120));
     window.location.href = url;
   } catch (err) {
-    console.error('LockedIn: failed to add to allowlist', err);
+    console.error('LockedIn:', err);
   }
 });
 
@@ -83,10 +88,26 @@ document.getElementById('btn-close').addEventListener('click', () => {
   });
 });
 
+// ── Mode-aware UI ─────────────────────────────────────────────────────────────
+
+function getMode() {
+  return new URLSearchParams(window.location.search).get('mode') ?? 'allowlist';
+}
+
+function applyModeUI() {
+  const mode = getMode();
+  if (mode === 'blocklist') {
+    document.querySelector('.sub').textContent = 'This site is on your blocklist';
+    // No quick-unblock from the blocked page — remove it from the popup instead
+    document.getElementById('btn-allow').hidden = true;
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 (async () => {
   showQuote();
+  applyModeUI();
   const url = await getBlockedUrl();
   displayUrl(url);
 })();

@@ -26,9 +26,14 @@
       </div>
     </header>
 
+    <div class="mode-selector">
+      <label><input type="radio" name="mode" value="allowlist" checked> Allow only these sites</label>
+      <label><input type="radio" name="mode" value="blocklist"> Block only these sites</label>
+    </div>
+
     <main>
       <section class="section">
-        <h2 class="section-heading">Allowed Sites</h2>
+        <h2 class="section-heading" id="list-heading">Allowed Sites</h2>
 
         <div class="input-row">
           <input
@@ -56,8 +61,8 @@
 
         <div class="site-list" id="site-list">
           <div class="empty-state" id="empty-state">
-            <p>No sites allowed yet.</p>
-            <p class="dim">All websites will be blocked.</p>
+            <p id="empty-primary">No sites allowed yet.</p>
+            <p class="dim" id="empty-secondary">All websites will be blocked.</p>
           </div>
         </div>
       </section>

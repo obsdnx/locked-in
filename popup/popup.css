@@ -226,6 +226,10 @@ main {
   min-height: 16px;
 }
 
+.error-msg.info {
+  color: var(--blue);
+}
+
 /* ── Quick add chips ─────────────────────────────────────── */
 
 .quick-add {
@@ -360,4 +364,34 @@ main {
   color: var(--mid);
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+
+/* ── Mode selector ───────────────────────────────────────── */
+
+.mode-selector {
+  display: flex;
+  gap: 16px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  border-radius: var(--r);
+}
+
+.mode-selector label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mid);
+  cursor: pointer;
+}
+
+.mode-selector input[type="radio"] {
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+
+.mode-selector label:has(input:checked) {
+  color: var(--dark);
+  font-weight: 600;
 }
